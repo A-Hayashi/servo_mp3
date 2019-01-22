@@ -2,6 +2,8 @@
 /* ノイズ除去のための3回同じパルス幅が入ったら表示するようにすること */
 
 #include "PinChangeInterrupt.h"
+#include "AltSoftSerial.h"
+#include "DFPlayer_Mini_Mp3.h"
 
 typedef void(*VoidFuncPtr)(void);
 
@@ -54,6 +56,7 @@ void change6(void);
 void change7(void);
 
 PulseMeasure meas[] = {{4, change0}, {5, change1}, {6, change2}, {7, change3}};
+AltSoftSerial mySerial; // RX, TX
 
 void change0(void)
 {
@@ -75,27 +78,7 @@ void change3(void)
   meas[3].change();
 }
 
-//void setup() {
-//  Serial.begin(9600);
-//}
-
-//void loop() {
-//  static int width[8];
-//
-//  for (int i = 0; i < sizeof(meas) / sizeof(meas[0]); i++) {
-//    width[i] = meas[i].GetWidth();
-//    Serial.print(width[i]);
-//    Serial.print("\t");
-//  }
-//  Serial.println("");
-//}
-
-#include "AltSoftSerial.h"
-#include "DFPlayer_Mini_Mp3.h"
-
-AltSoftSerial mySerial; // RX, TX
-
-void setup () {
+void setup() {
   Serial.begin (9600);
   mySerial.begin (9600);
   mp3_set_serial (mySerial);  //set softwareSerial for DFPlayer-mini mp3 module
@@ -103,15 +86,104 @@ void setup () {
   mp3_set_volume (15);
 }
 
-void loop () {
-  Serial.println("mp3_play (1);");
-  mp3_play (1);
-  delay (6000);
-  for (;;) {
-    Serial.println("mp3_next ();");
-    mp3_next ();
-    delay (6000);
+void loop() {
+  static int width[8];
+
+  //  for (int i = 0; i < sizeof(meas) / sizeof(meas[0]); i++) {
+  for (int i = 0; i < 1; i++) {
+    width[i] = meas[i].GetWidth();
+    Serial.print(width[i]);
+    Serial.print("\t");
+
+    PlayMp3(width[0]);
   }
+  Serial.println("");
+}
+
+#define CHECK_NUM 5
+int  CheckNum(int pulse) {
+  static bool initialized = false;
+  static int nums[CHECK_NUM];
+
+  if (initialized == false) {
+    for (int i = 0; i < CHECK_NUM; i++) {
+      nums[i] = i;
+    }
+    initialized = true;
+  }
+
+  {
+    static int idx = 0;
+    nums[idx] = Pulse2Digit(pulse);
+    idx++;
+    if (idx > CHECK_NUM - 1) idx = 0;
+  }
+
+  int i;
+  for (i = 1; i < CHECK_NUM; i++) {
+    if (nums[i] != nums[0]) break;
+  }
+
+  if (i == CHECK_NUM) {
+    return nums[0];
+  } else {
+    return 0xff;
+  }
+}
+
+void PlayMp3 (int pulse) {
+  static int num_old = 0xff;
+  int num = CheckNum(pulse);
+
+  if (num != 0xff && num_old != num) {
+    Serial.print("mp3_play (");
+    Serial.print(num);
+    Serial.print(");");
+    mp3_play (num);
+  }
+  num_old = num;
+}
+
+typedef struct {
+  int pmin;
+  int pmax;
+  int digit;
+} p2d_t;
+
+/* パルス幅と7SEGに表示する数字の関係 */
+p2d_t p2d[] =
+{
+  {0, 595, 0},
+  {596, 698, 1},
+  {699, 801, 2},
+  {802, 904, 3},
+  {905, 1008, 4},
+  {1009, 1111, 5},
+  {1112, 1214, 6},
+  {1215, 1317, 7},
+  {1318, 1420, 8},
+  {1421, 1523, 9},
+  {1524, 1626, 10},
+  {1627, 1729, 11},
+  {1730, 1832, 12},
+  {1833, 1936, 13},
+  {1937, 2039, 14},
+  {2040, 2142, 15},
+  {2143, 2245, 16},
+  {2246, 2348, 17},
+  {2349, 2400, 18},
+};
+
+byte Pulse2Digit(int pulse)
+{
+  byte digit = 0xff;
+  for (int i = 0; i < sizeof(p2d) / sizeof(p2d[0]); i++) {
+    if ( p2d[i].pmin <= pulse && pulse <= p2d[i].pmax) {
+      digit = p2d[i].digit;
+      break;
+    }
+  }
+  return digit;
 }
 
 /*
@@ -135,5 +207,3 @@ void loop () {
    void mp3_DAC (boolean state);
    void mp3_random_play ();
 */
-
-
